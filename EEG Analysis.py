@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Mar 29 17:22:48 2024
+Created on Sat Mar 30 17:30:34 2024
 
 @author: lukeb
 """
 #%% Notes
 # Filtered data from Physio.net
-# Calculates Peak_time_diff then breaks into chunks
+# Breaks into chunks then Calculates Peak_time_diff
 #%% imports
 import pandas as pd
 import math 
@@ -16,40 +16,30 @@ from scipy.signal import find_peaks
 from scipy.stats import rankdata
 import itertools
 from matplotlib import cm
-#%% Data:
+#%% data
 data = pd.read_csv(r"C:\Users\lukeb\OneDrive\Documents\research\s01_ex01_s03.csv")
 
 # Extract time series columns
 node_columns = ['T7', 'F8', 'Cz', 'P4']
-time = data['Time'].tolist()
-time_series_dict = {col: data[col].tolist() for col in node_columns}
+time = data['Time'].values
+time_series_dict = {col: data[col].values for col in node_columns}
 
-#%% def peaks_time_diff
-def peaks_time_diff(time_series_dict):
-    peaks, _ = find_peaks(time_series_dict)
-    tAtpeak = []
+#%% Function to calculate peak time differences
+def peaks_time_diff(time_series):
+    peaks, _ = find_peaks(time_series)
+    t_at_peak = time[peaks]
+    time_diff = np.diff(t_at_peak)
+    return time_diff
 
-    for i in range(len(peaks)):
-        tAtpeak.append(time[peaks[i]])
-    timeDiff = []
-    
-    for j in range(len(tAtpeak)-1):
-        timeDiff.append(np.abs(tAtpeak[j] - tAtpeak[j+1]))
-    
-    return timeDiff
-#%% def ordinal_distribution
+#%% def ordinal distribution
 def ordinal_distribution(data, dx=3, dy=1, taux=1, tauy=1, return_missing=True, tie_precision=8):
-
-# Updated version of ordinal distribution that considers periodic words in the total population caluclation
-# but doesn't treat them as individual words in the return    
-
     try:
         ny, nx = np.shape(data) 
-        data   = np.array(data)
+        data = np.array(data)
     except:
-        nx     = np.shape(data)[0]
-        ny     = 1
-        data   = np.array([data])
+        nx = np.shape(data)[0]
+        ny = 1
+        data = np.array([data])
 
     if tie_precision is not None:
         data = np.round(data, tie_precision)
@@ -64,47 +54,43 @@ def ordinal_distribution(data, dx=3, dy=1, taux=1, tauy=1, return_missing=True, 
     symbols = np.apply_along_axis(rankdata, 1, partitions, method='min') - 1
     symbols, symbols_count = np.unique(symbols, return_counts=True, axis=0)
 
-    probabilities = symbols_count/len(partitions)
+    probabilities = symbols_count / len(partitions)
 
-    if return_missing==False:
+    if return_missing == False:
         return symbols, probabilities
-    
     else:
-        all_symbols   = list(map(list,list(itertools.permutations(np.arange(dx*dy)))))
-        all_probs     = [0]*6
+        all_symbols = list(map(list, list(itertools.permutations(np.arange(dx*dy)))))
+        all_probs = [0] * 6
         for i in range(len(all_symbols)):
             for j in range(len(symbols)):
                 if np.array_equal(all_symbols[i], symbols[j]):
                     all_probs[i] += probabilities[j]
-                
-                
     
     return all_symbols, all_probs
 
 #%% Calc ordinal patterns in Chunks
-#peak_time_diff array  is 6402 long
-chunk_size = 3201
+# size total =24000
+chunk_size = 2400  # Define your chunk size here
+
+# Dictionary to store results
 ordinal_patterns_dict = {}
 
-# Step 1: Calculate peak time differences for each time series
-peak_time_diff_dict = {}
-for key, array in time_series_dict.items():
-    peak_time_diff = peaks_time_diff(array)
-    peak_time_diff_dict[key] = peak_time_diff
-    
-# Iterate over each time series in peak_time_diff_dict
-for key, peak_time_diff_array in peak_time_diff_dict.items():
+# Iterate over each time series
+for key, time_series in time_series_dict.items():
     ordinal_patterns_list = []
     
-    # Split the peak time differences array into chunks
-    for i in range(0, len(peak_time_diff_array), chunk_size):
-        chunk = peak_time_diff_array[i:i+chunk_size]
+    # Split time series into chunks
+    for i in range(0, len(time_series), chunk_size):
+        chunk = time_series[i:i+chunk_size]
+        
+        # Calculate peak time differences for the chunk
+        peak_time_diff = peaks_time_diff(chunk)
         
         # Calculate ordinal patterns for the chunk
-        ordinal_patterns = ordinal_distribution(chunk)
+        ordinal_patterns = ordinal_distribution(peak_time_diff)
         ordinal_patterns_list.append(ordinal_patterns)
     
-    # Store ordinal patterns for the current time series in the dictionary
+    # Store ordinal patterns for the current time series
     ordinal_patterns_dict[key] = ordinal_patterns_list
 
 # Print ordinal pattern probabilities for each time series
@@ -112,28 +98,38 @@ for key, peak_time_diff_array in peak_time_diff_dict.items():
     #print(f"{key}:")
     #for i, patterns in enumerate(patterns_list):
         #print(f"Chunk {i+1}: Ordinal Patterns: {patterns}")
-
 #%% Periodics
 p111_chunk_dict = {}
 
-# Iterate over each time series in peak_time_diff_dict
-for key, peak_time_diff_array in peak_time_diff_dict.items():
+# Iterate over each time series in ordinal_patterns_dict
+for key, patterns_list in ordinal_patterns_dict.items():
     p111_chunk_dict[key] = []  # Initialize a list to store summed probabilities for each chunk
     
-    # Split the peak time differences array into chunks
-    for i in range(0, len(peak_time_diff_array), chunk_size):
-        chunk = peak_time_diff_array[i:i+chunk_size]
-        
-        # Calculate ordinal patterns for the chunk
-        _, probabilities = ordinal_distribution(chunk)
+    # Iterate over each chunk of ordinal patterns
+    for patterns in patterns_list:
+        _, probabilities = patterns
         
         # Sum the probabilities in the chunk and store it
-        summed_probability = (1- sum(probabilities))
+        summed_probability = (1 - sum(probabilities))
         p111_chunk_dict[key].append(summed_probability)
 
 # Print p111 dictionary
 #for key, summed_probabilities in p111_chunk_dict.items():
-    #print(f"{key}: Periodics: {summed_probabilities}")       
+    #print(f"{key}: Periodics: {summed_probabilities}") 
+#%% Calculate PE for periodics in each chunk  
+PE_p111 = {}
+
+# Iterate over each chunk in p111_chunk_dict
+for key, summed_probabilities in p111_chunk_dict.items():
+    # Iterate over each summed probability in the chunk
+    for i, p in enumerate(summed_probabilities):
+        # Calculate pe
+        pe = - (p * math.log(p)) / math.log(6)
+        #print(f"{key}, Chunk {i+1}: PE_p111 = {pe}")
+        # Storing the calculated PE values in a dictionary
+        if key not in PE_p111:
+            PE_p111[key] = []
+        PE_p111[key].append(pe) 
 #%% Define calculate_pe_for_chunks
 def permutation_entropy(ordinal_distributions, probs=True):
    pe_dict = {}
@@ -157,21 +153,43 @@ def calculate_pe_for_chunks(ordinal_patterns_dict, probs=True):
         pe_dict[key] = pe_list
     return pe_dict
 
-#%% Calculate PE for each chunk
+#%% Calculate PE for ordinal patterns in each chunk
+#make this so that its the PE of each chunk + PE periodics for that chunk
 pe_chunk_OPdict = calculate_pe_for_chunks(ordinal_patterns_dict)
 
 # Print the calculated PE for each chunk in each time series
-for key, pe_list in pe_chunk_OPdict.items():
-    print(f"Time Series: {key}")
-    for i, pe_chunk in enumerate(pe_list):
-       print(f"Chunk {i+1}: PE = {pe_chunk}")
-       
+#for key, pe_list in pe_chunk_OPdict.items():
+    #print(f"Time Series: {key}")
+    #for i, pe_chunk in enumerate(pe_list):
+       #print(f"Chunk {i+1}: PE_OP = {pe_chunk}")
+
+#%% Calculate PE ord pattern + PE periodics 
+# Initialize a dictionary to store the combined values
+PE = {}
+
+# Iterate over each key in pe_chunk_OPdict
+for key, chunk_values in pe_chunk_OPdict.items():
+    # Initialize a list to store the combined values for this key
+    combined_values = []
+    
+    # Iterate over each value in the chunk and the corresponding value in PE_p111
+    for i, (chunk_value, pe_value) in enumerate(zip(chunk_values, PE_p111[key])):
+        # Add the values together
+        combined_value = chunk_value + pe_value
+        combined_values.append(combined_value)
+        
+        # Print the combined value with chunk information
+        #print(f"{key}, Chunk {i+1}: PE = {combined_value}")
+    
+    # Store the combined values for this key in the PE dictionary
+    PE[key] = combined_values
+
 #%% PE Graph
 # Create a PE vs. Time graph with a line chart for each time series
 plt.figure(figsize=(10, 6))
 
-for key, pe_list in pe_chunk_OPdict.items():
-    plt.plot(time[:len(pe_list)], pe_list, label=key)
+for key, combined_values in PE.items():
+    plt.plot(time[:len(combined_values)], combined_values, label=key)
 
 plt.title('Permutation Entropy vs. Time')
 plt.xlabel('Time')
